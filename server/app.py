@@ -1,203 +1,59 @@
-import pandas as pd
-import numpy as np
+import joblib
+from flask import Flask, request, jsonify
+from instagrapi import Client
+from instagrapi.exceptions import LoginRequired
 
-from nltk.tokenize import word_tokenize
-import re
+# emotions_dict = ["anger", "disgust", "fear", "happy", "joy", "neutral", "sad", "sadness", "shame", "surprise"]
+# pipe_lr = joblib.load(open("./models/emotion_classifier_pipe_lr.pkl", "rb"))
+# def predict_emotions(docx):
+#     results = pipe_lr.predict([docx])
+#     return results[0]
 
-import matplotlib.pyplot as plt
-from sklearn.metrics import accuracy_score, f1_score, confusion_matrix
+# def get_prediction_proba(docx):
+#     results = pipe_lr.predict_proba([docx])
+#     return results
 
-from keras.preprocessing.text import Tokenizer
-from keras.preprocessing.sequence import pad_sequences
-from keras.utils import to_categorical
 
-from keras.models import Sequential
-from keras.layers import Embedding, Conv1D, GlobalMaxPooling1D, Dense
 
-# Number of labels: joy, anger, fear, sadness, neutral
-num_classes = 5
 
-# Number of dimensions for word embedding
-embed_num_dims = 300
+# app = Flask(__name__)
 
-# Max input length (max number of words) 
-max_seq_len = 500
+# @app.route('/predict', methods=['POST'])
+# def predict():
+#     raw_text = request.json['text']
+#     prediction = predict_emotions(raw_text)
+#     probability = get_prediction_proba(raw_text)
+#     response = {
+#         'prediction': prediction,
+#         'probability': probability.tolist()
+#     }
+#     return jsonify(response)
 
-class_names = ['joy', 'fear', 'anger', 'sadness', 'neutral']
+def start_insta_session(USERNAME="senticlose", PASSWORD="Rameez@2002"):
+    cl = Client()
 
-data_train = pd.read_csv('data/data_train.csv', encoding='utf-8')
-data_test = pd.read_csv('data/data_test.csv', encoding='utf-8')
-
-X_train = data_train.Text
-X_test = data_test.Text
-
-y_train = data_train.Emotion
-y_test = data_test.Emotion
-
-data = data_train.append(data_test, ignore_index=True)
-
-print(data.Emotion.value_counts())
-data.head(6)
-
-def clean_text(data):
+    try:
+        session = cl.load_settings("session.json")
+        cl.set_settings(session)
+        cl.login(USERNAME, PASSWORD)
+    except FileNotFoundError:
+        cl.login(USERNAME, PASSWORD)
+        cl.dump_settings("session.json")
     
-    # remove hashtags and @usernames
-    data = re.sub(r"(#[\d\w\.]+)", '', data)
-    data = re.sub(r"(@[\d\w\.]+)", '', data)
-    
-    # tekenization using nltk
-    data = word_tokenize(data)
-    
-    return data
+    try:
+        cl.get_timeline_feed()
+    except LoginRequired:
+        old_session = cl.get_settings()
+        cl.set_settings({})
+        cl.set_uuids(old_session["uuids"])
+        cl.login(USERNAME, PASSWORD)
 
-texts = [' '.join(clean_text(text)) for text in data.Text]
-
-texts_train = [' '.join(clean_text(text)) for text in X_train]
-texts_test = [' '.join(clean_text(text)) for text in X_test]
-
-print(texts_train[92])
-
-tokenizer = Tokenizer()
-tokenizer.fit_on_texts(texts)
-
-sequence_train = tokenizer.texts_to_sequences(texts_train)
-sequence_test = tokenizer.texts_to_sequences(texts_test)
-
-index_of_words = tokenizer.word_index
-
-# vacab size is number of unique words + reserved 0 index for padding
-vocab_size = len(index_of_words) + 1
-
-print('Number of unique words: {}'.format(len(index_of_words)))
+    cl.delay_range = [1,3]
+    user_id = cl.user_id_from_username(USERNAME)
+    print(cl.user_medias_paginated_gql(user_id, 0, 2, end_cursor=None))
 
 
-X_train_pad = pad_sequences(sequence_train, maxlen = max_seq_len )
-X_test_pad = pad_sequences(sequence_test, maxlen = max_seq_len )
+if __name__ == '__main__':
+    # app.run()
 
-X_train_pad
-
-encoding = {
-    'joy': 0,
-    'fear': 1,
-    'anger': 2,
-    'sadness': 3,
-    'neutral': 4
-}
-
-# Integer labels
-y_train = [encoding[x] for x in data_train.Emotion]
-y_test = [encoding[x] for x in data_test.Emotion]
-
-
-y_train = to_categorical(y_train)
-y_test = to_categorical(y_test)
-
-y_train
-
-def create_embedding_matrix(filepath, word_index, embedding_dim):
-    vocab_size = len(word_index) + 1
-    embedding_matrix = np.zeros((vocab_size, embedding_dim))
-    with open(filepath) as f:
-        for line in f:
-            word, *vector = line.split()
-            if word in word_index:
-                idx = word_index[word] 
-                embedding_matrix[idx] = np.array(
-                    vector, dtype=np.float32)[:embedding_dim]
-    return embedding_matrix
-
-import urllib.request
-import zipfile
-import os
-
-fname = 'embeddings/wiki-news-300d-1M.vec'
-
-if not os.path.isfile(fname):
-    print('Downloading word vectors...')
-    urllib.request.urlretrieve('https://dl.fbaipublicfiles.com/fasttext/vectors-english/wiki-news-300d-1M.vec.zip',
-                              'wiki-news-300d-1M.vec.zip')
-    print('Unzipping...')
-    with zipfile.ZipFile('wiki-news-300d-1M.vec.zip', 'r') as zip_ref:
-        zip_ref.extractall('embeddings')
-    print('done.')
-    
-    os.remove('wiki-news-300d-1M.vec.zip')
-
-
-embedd_matrix = create_embedding_matrix(fname, index_of_words, embed_num_dims)
-embedd_matrix.shape
-
-# Inspect unseen words
-new_words = 0
-
-for word in index_of_words:
-    entry = embedd_matrix[index_of_words[word]]
-    if all(v == 0 for v in entry):
-        new_words = new_words + 1
-
-print('Words found in wiki vocab: ' + str(len(index_of_words) - new_words))
-print('New words found: ' + str(new_words))
-
-# Embedding layer before the actaul BLSTM 
-embedd_layer = Embedding(vocab_size,
-                         embed_num_dims,
-                         input_length = max_seq_len,
-                         weights = [embedd_matrix],
-                         trainable=False)
-
-# Convolution
-kernel_size = 3
-filters = 256
-
-model = Sequential()
-model.add(embedd_layer)
-model.add(Conv1D(filters, kernel_size, activation='relu'))
-model.add(GlobalMaxPooling1D())
-model.add(Dense(256, activation='relu'))
-model.add(Dense(num_classes, activation='softmax'))
-
-
-model.compile(loss = 'categorical_crossentropy', optimizer = 'adam', metrics = ['accuracy'])
-model.summary()
-
-
-batch_size = 256
-epochs = 6
-
-hist = model.fit(X_train_pad, y_train, 
-                 batch_size=batch_size,
-                 epochs=epochs,
-                 validation_data=(X_test_pad,y_test))
-
-
-# Accuracy plot
-plt.plot(hist.history['acc'])
-plt.plot(hist.history['val_acc'])
-plt.title('model accuracy')
-plt.ylabel('accuracy')
-plt.xlabel('epoch')
-plt.legend(['train', 'validation'], loc='upper left')
-plt.show()
-
-# Loss plot
-plt.plot(hist.history['loss'])
-plt.plot(hist.history['val_loss'])
-plt.title('model loss')
-plt.ylabel('loss')
-plt.xlabel('epoch')
-plt.legend(['train', 'validation'], loc='upper left')
-plt.show()
-
-
-predictions = model.predict(X_test_pad)
-predictions = np.argmax(predictions, axis=1)
-predictions = [class_names[pred] for pred in predictions]
-
-
-print("Accuracy: {:.2f}%".format(accuracy_score(data_test.Emotion, predictions) * 100))
-print("\nF1 Score: {:.2f}".format(f1_score(data_test.Emotion, predictions, average='micro') * 100))
-
-
-model.save('models/cnn_w2v.h5')
-from keras.models import load_model
-predictor = load_model('models/cnn_w2v.h5')
+    start_insta_session()
