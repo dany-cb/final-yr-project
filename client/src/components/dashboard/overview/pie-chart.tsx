@@ -21,13 +21,13 @@ const iconMapping = { Desktop: DesktopIcon, Tablet: DeviceTabletIcon, Phone: Pho
   Icon
 >;
 
-export interface TrafficProps {
+export interface ChartProps {
   chartSeries: number[];
   labels: string[];
   sx?: SxProps;
 }
 
-export function Traffic({ chartSeries, labels, sx }: TrafficProps): React.JSX.Element {
+export function PieChart({ chartSeries, labels, sx }: ChartProps): React.JSX.Element {
   const chartOptions = useChartOptions(labels);
 
   return (
@@ -68,17 +68,11 @@ export function Traffic({ chartSeries, labels, sx }: TrafficProps): React.JSX.El
   );
 }
 
-function useChartOptions(labels: string[]): ApexOptions {
+export function useChartOptions(labels: string[]): ApexOptions {
   const theme = useTheme();
 
   return {
     chart: { background: 'transparent' },
-    colors: [
-      theme.palette.primary.main,
-      theme.palette.success.main,
-      theme.palette.warning.main,
-      theme.palette.error.main,
-    ],
     dataLabels: { enabled: false },
     labels,
     legend: { show: false },

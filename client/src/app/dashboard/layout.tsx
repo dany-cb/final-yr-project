@@ -1,5 +1,5 @@
 'use client';
-import * as React from 'react';
+
 import Box from '@mui/material/Box';
 import Container from '@mui/material/Container';
 import GlobalStyles from '@mui/material/GlobalStyles';
@@ -9,15 +9,18 @@ import { MainNav } from '@/components/dashboard/layout/main-nav';
 import { SideNav } from '@/components/dashboard/layout/side-nav';
 import BoxesLoader from '@/components/loaders/boxes';
 import { usePathname } from 'next/navigation';
+import { createContext, useEffect, useLayoutEffect, useState } from 'react';
+import InstaLogin from '@/components/auth/insta-login';
+import axios from 'axios';
 
 interface LayoutProps {
   children: React.ReactNode;
 }
 
 const Loader = ({ children, delay }) => {
-  const [isLoading, setIsLoading] = React.useState(false);
+  const [isLoading, setIsLoading] = useState(false);
   const location = usePathname();
-  React.useLayoutEffect(() => {
+  useLayoutEffect(() => {
     setIsLoading(true);
     setTimeout(() => {
       setIsLoading(false);
@@ -37,7 +40,37 @@ const Loader = ({ children, delay }) => {
   );
 };
 
+export const InstaContext = createContext({});
+
 export default function Layout({ children }: LayoutProps): React.JSX.Element {
+  const [instaCreds, setInstaCreds] = useState(null);
+  const [instaStatus, setInstaStatus] = useState({});
+
+  useLayoutEffect(() => {
+    const instaCreds = localStorage.getItem('instaCreds');
+    if (instaCreds) {
+      setInstaCreds(JSON.parse(instaCreds));
+    }
+  }, []);
+
+  const verifyCreds = () => {
+    axios
+      .post('http://127.0.0.1:5000/instalogin', instaCreds, {
+        headers: { 'Access-Control-Allow-Origin': '*', 'Content-Type': 'application/json' },
+      })
+      .then((response) => {
+        response.data?.status === 'success'
+          ? setInstaStatus({ account: 'verified' })
+          : setInstaStatus({ account: 'failed' });
+      });
+  };
+
+  useEffect(() => {
+    if (instaCreds) {
+      verifyCreds();
+    }
+  }, [instaCreds]);
+
   return (
     <AuthGuard>
       <GlobalStyles
@@ -52,32 +85,38 @@ export default function Layout({ children }: LayoutProps): React.JSX.Element {
           },
         }}
       />
-      <Box
-        sx={{
-          bgcolor: 'var(--mui-palette-background-default)',
-          display: 'flex',
-          flexDirection: 'column',
-          position: 'relative',
-          minHeight: '100%',
-        }}
-      >
-        <SideNav />
+      {!instaCreds ? (
+        <InstaLogin setInstaCreds={setInstaCreds} />
+      ) : (
         <Box
           sx={{
+            bgcolor: 'var(--mui-palette-background-default)',
             display: 'flex',
-            flex: '1 1 auto',
             flexDirection: 'column',
-            pl: { lg: 'var(--SideNav-width)' },
+            position: 'relative',
+            minHeight: '100%',
           }}
         >
-          <MainNav />
-          <main>
-            <Container maxWidth="xl" sx={{ py: '64px' }}>
-              <Loader delay={1000}>{children}</Loader>
-            </Container>
-          </main>
+          <SideNav />
+          <Box
+            sx={{
+              display: 'flex',
+              flex: '1 1 auto',
+              flexDirection: 'column',
+              pl: { lg: 'var(--SideNav-width)' },
+            }}
+          >
+            <MainNav />
+            <main>
+              <Container maxWidth="xl" sx={{ py: '64px' }}>
+                <Loader delay={1000}>
+                  <InstaContext.Provider value={instaStatus}>{children}</InstaContext.Provider>
+                </Loader>
+              </Container>
+            </main>
+          </Box>
         </Box>
-      </Box>
+      )}
     </AuthGuard>
   );
 }
